@@ -17,8 +17,9 @@ type OpCodeHooks interface {
 // The hooks are used to enforce access control policies on EVM operations.
 // They are ran BEFORE the respective opcode execution every time they are called.
 type DefaultOpCodesHooks struct {
-	callHooks   []CallHook
-	createHooks []CreateHook
+	callHooks        []CallHook
+	createHooks      []CreateHook
+	createdCodeHooks []CreatedCodeHook
 }
 
 // Make sure we comply with geth's OpCodeHooks interface
@@ -28,6 +29,26 @@ type (
 	CreateHook func(ev *vm.EVM, caller common.Address) error
 	CallHook   func(ev *vm.EVM, caller common.Address, recipient common.Address) error
 )
+
+// CreatedCodeHook runs on the runtime code a contract creation produced,
+// after the constructor has run and before that code is written to state. A
+// non-nil error fails the creation.
+//
+// WHY THIS EXISTS SEPARATELY FROM CreateHook. CreateHook answers "may this
+// account deploy" and runs before the opcode, so it cannot answer "is this
+// code permitted" - the code does not exist yet. A chain that admits
+// contracts by what their code IS has no other point at which to decide.
+type CreatedCodeHook func(ev *vm.EVM, address common.Address, code []byte) error
+
+// CreatedCodeHooksAdder is an OPTIONAL extension to OpCodeHooks, detected by
+// type assertion rather than added to that interface.
+//
+// Adding a method to OpCodeHooks would break every downstream implementation
+// of it. Mirrors how geth exposes vm.CreatedCodeHooks, and for the same
+// reason: an extension nobody is forced to implement.
+type CreatedCodeHooksAdder interface {
+	AddCreatedCodeHooks(hooks ...CreatedCodeHook)
+}
 
 // NewDefaultOpCodesHooks creates a new DefaultOpCodesHooks instance
 func NewDefaultOpCodesHooks() OpCodeHooks {
@@ -50,6 +71,22 @@ func (h *DefaultOpCodesHooks) AddCreateHooks(hooks ...CreateHook) {
 func (h *DefaultOpCodesHooks) CreateHook(evm *vm.EVM, caller common.Address) error {
 	for _, hook := range h.createHooks {
 		if err := hook(evm, caller); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// AddCreatedCodeHooks adds one or more hooks to be executed on the code a
+// creation produced, before it is written to state. Executed in order.
+func (h *DefaultOpCodesHooks) AddCreatedCodeHooks(hooks ...CreatedCodeHook) {
+	h.createdCodeHooks = append(h.createdCodeHooks, hooks...)
+}
+
+// CreatedCodeHook satisfies geth's optional vm.CreatedCodeHooks interface.
+func (h *DefaultOpCodesHooks) CreatedCodeHook(evm *vm.EVM, address common.Address, code []byte) error {
+	for _, hook := range h.createdCodeHooks {
+		if err := hook(evm, address, code); err != nil {
 			return err
 		}
 	}

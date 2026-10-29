@@ -90,6 +90,14 @@ func (k *Keeper) NewEVMWithOverridePrecompiles(
 			k.GetPrecompileRecipientCallHook(ctx),
 		)
 	}
+	// The created-code hook, if the app supplied one. Optional on both sides:
+	// the app need not set it, and the hooks type need not accept it.
+	if k.createdCodeHookFn != nil {
+		if adder, ok := evmHooks.(types.CreatedCodeHooksAdder); ok {
+			adder.AddCreatedCodeHooks(k.createdCodeHookFn(ctx))
+		}
+	}
+
 	return vm.NewEVMWithHooks(evmHooks, blockCtx, txCtx, stateDB, ethCfg, vmConfig)
 }
 
