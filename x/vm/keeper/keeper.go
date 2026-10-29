@@ -78,6 +78,14 @@ type Keeper struct {
 	hooks types.EvmHooks
 	// EVM Hooks for tx post-processing
 
+	// createdCodeHookFn supplies a hook on the code a creation produced.
+	//
+	// A FACTORY taking the context, not a bare hook: the hook signature
+	// carries no sdk.Context, and a chain deciding admissibility from state
+	// needs one. Mirrors GetPrecompilesCallHook(ctx), which is built per
+	// message for the same reason.
+	createdCodeHookFn func(sdk.Context) types.CreatedCodeHook
+
 	// precompiles defines the map of all available precompiled smart contracts.
 	// Some of these precompiled contracts might not be active depending on the EVM
 	// parameters.
@@ -209,6 +217,20 @@ func (k Keeper) SetTxBloom(ctx sdk.Context, bloom *big.Int) {
 // ----------------------------------------------------------------------------
 // Hooks
 // ----------------------------------------------------------------------------
+
+// SetCreatedCodeHook sets the factory supplying the created-code hook.
+//
+// Called only once during initialization, panics if called more than once —
+// the same contract as SetHooks below, and for the same reason: a hook
+// silently replaced after wiring is a guard that stops guarding without
+// anything reporting it.
+func (k *Keeper) SetCreatedCodeHook(f func(sdk.Context) types.CreatedCodeHook) *Keeper {
+	if k.createdCodeHookFn != nil {
+		panic("cannot set the created-code hook twice")
+	}
+	k.createdCodeHookFn = f
+	return k
+}
 
 // SetHooks sets the hooks for the EVM module
 // Called only once during initialization, panics if called more than once.
